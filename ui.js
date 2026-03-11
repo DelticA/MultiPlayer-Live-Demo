@@ -2,7 +2,8 @@ import {
   LagNetwork,
   Server,
   ControllerClient,
-  SimulatorClient
+  SimulatorClient,
+  getCharacterPose
 } from "./network.js";
 import { drawLane, resizeCanvases } from "./render.js";
 
@@ -12,6 +13,17 @@ function formatMs(value) {
 
 function formatPx(value) {
   return `${value.toFixed(1)} px`;
+}
+
+function formatPose(state) {
+  const pose = getCharacterPose(state);
+  if (pose === "walk") {
+    return "行走";
+  }
+  if (pose === "crouch") {
+    return "蹲下";
+  }
+  return "静止";
 }
 
 const refs = {
@@ -33,14 +45,17 @@ const refs = {
   serverAckStat: document.getElementById("serverAckStat"),
   serverPositionStat: document.getElementById("serverPositionStat"),
   serverQueueStat: document.getElementById("serverQueueStat"),
+  serverPoseStat: document.getElementById("serverPoseStat"),
   controllerPredictedStat: document.getElementById("controllerPredictedStat"),
   controllerGhostStat: document.getElementById("controllerGhostStat"),
   controllerPendingStat: document.getElementById("controllerPendingStat"),
   controllerCorrectionStat: document.getElementById("controllerCorrectionStat"),
+  controllerPoseStat: document.getElementById("controllerPoseStat"),
   simRenderedStat: document.getElementById("simRenderedStat"),
   simSnapshotStat: document.getElementById("simSnapshotStat"),
   simBufferStat: document.getElementById("simBufferStat"),
   simDelayStat: document.getElementById("simDelayStat"),
+  simPoseStat: document.getElementById("simPoseStat"),
   serverCanvas: document.getElementById("serverCanvas").getContext("2d"),
   controllerCanvas: document.getElementById("controllerCanvas").getContext("2d"),
   simCanvas: document.getElementById("simCanvas").getContext("2d")
@@ -63,27 +78,28 @@ let nowMs = 0;
 
 function render() {
   drawLane(refs.serverCanvas, "server authoritative lane", [
-    { x: server.position, color: "#0f766e", label: "authoritative" }
+    { x: server.character.x, state: server.character, color: "#0f766e", label: "authoritative", phase: server.time }
   ]);
 
-  const controllerMarkers = [
-    { x: controller.predictedPosition, color: "#111827", label: "predicted" }
+  const controllerActors = [
+    { x: controller.predictedState.x, state: controller.predictedState, color: "#111827", label: "predicted", phase: nowMs }
   ];
 
   if (refs.showGhost.checked) {
-    controllerMarkers.push({
-      x: controller.serverGhostPosition,
+    controllerActors.push({
+      x: controller.serverGhostState.x,
+      state: controller.serverGhostState,
       color: "#7c3aed",
       alpha: 0.6,
-      radius: 10,
-      label: "server"
+      label: "server",
+      phase: server.time
     });
   }
 
-  drawLane(refs.controllerCanvas, "controller prediction lane", controllerMarkers);
+  drawLane(refs.controllerCanvas, "controller prediction lane", controllerActors);
 
   drawLane(refs.simCanvas, "simulator interpolation lane", [
-    { x: simulator.renderPosition, color: "#2563eb", label: "interpolated" }
+    { x: simulator.renderState.x, state: simulator.renderState, color: "#2563eb", label: "interpolated", phase: nowMs - Number(refs.interpDelay.value) }
   ]);
 }
 
@@ -107,32 +123,38 @@ function syncControlLabels() {
 function updateDirection() {
   const left = keys.has("ArrowLeft") || keys.has("KeyA");
   const right = keys.has("ArrowRight") || keys.has("KeyD");
+  const crouching = keys.has("ArrowDown") || keys.has("KeyS");
   controller.setDirection((right ? 1 : 0) + (left ? -1 : 0));
+  controller.setCrouching(crouching);
 }
 
 function updateStats() {
   refs.serverTimeStat.textContent = formatMs(server.time);
   refs.serverAckStat.textContent = String(server.lastProcessedInput);
-  refs.serverPositionStat.textContent = formatPx(server.position);
+  refs.serverPositionStat.textContent = formatPx(server.character.x);
   refs.serverQueueStat.textContent = String(server.inputBacklog.length);
+  refs.serverPoseStat.textContent = formatPose(server.character);
 
-  refs.controllerPredictedStat.textContent = formatPx(controller.predictedPosition);
-  refs.controllerGhostStat.textContent = formatPx(controller.serverGhostPosition);
+  refs.controllerPredictedStat.textContent = formatPx(controller.predictedState.x);
+  refs.controllerGhostStat.textContent = formatPx(controller.serverGhostState.x);
   refs.controllerPendingStat.textContent = String(controller.pendingInputs.length);
   refs.controllerCorrectionStat.textContent = `${controller.lastCorrection >= 0 ? "+" : ""}${controller.lastCorrection.toFixed(1)} px`;
+  refs.controllerPoseStat.textContent = formatPose(controller.predictedState);
 
-  refs.simRenderedStat.textContent = formatPx(simulator.renderPosition);
+  refs.simRenderedStat.textContent = formatPx(simulator.renderState.x);
   refs.simSnapshotStat.textContent = formatMs(simulator.newestSnapshotServerTime);
   refs.simBufferStat.textContent = String(simulator.buffer.length);
   refs.simDelayStat.textContent = `${refs.interpDelay.value} ms`;
+  refs.simPoseStat.textContent = formatPose(simulator.renderState);
 
   const directionText =
+    controller.crouching ? "蹲下输入持续中" :
     controller.direction < 0 ? "向左输入持续中" :
     controller.direction > 0 ? "向右输入持续中" :
-    "等待输入。按住 A / D 或左右方向键移动实体。";
+    "等待输入。按住 A / D、左右方向键行走，按住 S / 下方向键蹲下。";
 
   refs.statusLine.textContent =
-    `${directionText} 主控领先服务器 ${Math.abs(controller.predictedPosition - controller.serverGhostPosition).toFixed(1)} px。`;
+    `${directionText} 主控领先服务器 ${Math.abs(controller.predictedState.x - controller.serverGhostState.x).toFixed(1)} px。`;
   refs.networkLine.textContent = `队列中消息 ${network.messages.length} 条，延迟 ${refs.latency.value} ms，抖动 ${refs.jitter.value} ms，丢包 ${refs.loss.value}%`;
 }
 
@@ -158,7 +180,7 @@ for (const input of [refs.latency, refs.jitter, refs.loss, refs.snapshotRate, re
 }
 
 window.addEventListener("keydown", (event) => {
-  if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD"].includes(event.code)) {
+  if (["ArrowLeft", "ArrowRight", "ArrowDown", "KeyA", "KeyD", "KeyS"].includes(event.code)) {
     event.preventDefault();
     keys.add(event.code);
     updateDirection();
@@ -166,7 +188,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("keyup", (event) => {
-  if (["ArrowLeft", "ArrowRight", "KeyA", "KeyD"].includes(event.code)) {
+  if (["ArrowLeft", "ArrowRight", "ArrowDown", "KeyA", "KeyD", "KeyS"].includes(event.code)) {
     keys.delete(event.code);
     updateDirection();
   }
