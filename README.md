@@ -6,7 +6,7 @@
 - `Controller`：主控端本地预测与服务器和解
 - `Simulator`：模拟端基于快照缓冲的插值渲染
 
-当前仓库提供的是一个拆分为 `HTML + CSS + JavaScript` 的前端演示页面，用来直观观察以下三个核心机制如何协同工作：
+当前仓库提供的是一个拆分为 `HTML + CSS + JavaScript module` 的前端演示页面，用来直观观察以下三个核心机制如何协同工作：
 
 - Client-Side Prediction
 - Server Reconciliation
@@ -16,7 +16,10 @@
 
 - `index.html`：页面结构和控件
 - `styles.css`：布局、视觉样式和响应式规则
-- `app.js`：网络同步逻辑、渲染循环和交互处理
+- `network.js`：网络模型、同步状态和预测/和解/插值逻辑
+- `render.js`：canvas 绘制和高 DPI 适配
+- `ui.js`：DOM、输入绑定、主循环和页面初始化
+- `.github/workflows/pages.yml`：GitHub Pages 自动部署工作流
 
 这个页面保留了 Gambetta 示例中最核心的建模思路：
 
@@ -47,7 +50,17 @@
 
 这是一个纯前端静态 demo，不依赖构建工具。
 
-直接用浏览器打开 `index.html`。
+由于页面现在使用 ES modules，建议通过本地静态服务器运行，而不是直接双击 `index.html`。
+
+示例：
+
+```bash
+python3 -m http.server 8123
+```
+
+然后访问：
+
+- `http://127.0.0.1:8123`
 
 操作方式：
 
@@ -83,3 +96,15 @@
 - 把主控端位置拆成 `predicted / authoritative / corrected smoothing`
 - 增加多个远端实体，演示统一插值管线
 - 接入真实 websocket 通信替代本地 `LagNetwork`
+
+## GitHub Pages
+
+仓库已经包含 GitHub Pages 工作流，推送到 `main` 后会自动触发部署。
+
+默认访问地址会是：
+
+- [MultiPlayer Live Demo Pages](https://deltica.github.io/MultiPlayer-Live-Demo/)
+
+如果仓库还没有把 Pages 发布源切到 `GitHub Actions`，需要在仓库设置里做一次：
+
+- `Settings` -> `Pages` -> `Build and deployment` -> `Source: GitHub Actions`
