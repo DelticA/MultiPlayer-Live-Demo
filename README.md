@@ -6,7 +6,7 @@
 - `Controller`：主控端本地预测与服务器和解
 - `Simulator`：模拟端基于快照缓冲的插值渲染
 
-当前仓库提供的是一个初版单文件演示页面，用来直观观察以下三个核心机制如何协同工作：
+当前仓库提供的是一个拆分为 `HTML + CSS + JavaScript` 的前端演示页面，用来直观观察以下三个核心机制如何协同工作：
 
 - Client-Side Prediction
 - Server Reconciliation
@@ -14,7 +14,9 @@
 
 ## 项目内容
 
-- `controller-simulator-demo.html`
+- `index.html`：页面结构和控件
+- `styles.css`：布局、视觉样式和响应式规则
+- `app.js`：网络同步逻辑、渲染循环和交互处理
 
 这个页面保留了 Gambetta 示例中最核心的建模思路：
 
@@ -43,9 +45,9 @@
 
 ## 如何运行
 
-这是一个纯前端单文件 demo，不依赖构建工具。
+这是一个纯前端静态 demo，不依赖构建工具。
 
-直接用浏览器打开 `controller-simulator-demo.html`。
+直接用浏览器打开 `index.html`。
 
 操作方式：
 
@@ -80,5 +82,4 @@
 
 - 把主控端位置拆成 `predicted / authoritative / corrected smoothing`
 - 增加多个远端实体，演示统一插值管线
-- 拆分成模块化 `html + js + css` 结构
 - 接入真实 websocket 通信替代本地 `LagNetwork`
