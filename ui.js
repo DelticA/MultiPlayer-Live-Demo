@@ -38,7 +38,9 @@ const refs = {
   interpDelay: document.getElementById("interpDelay"),
   interpDelayValue: document.getElementById("interpDelayValue"),
   showGhost: document.getElementById("showGhost"),
+  enablePrediction: document.getElementById("enablePrediction"),
   enableReconciliation: document.getElementById("enableReconciliation"),
+  enableInterpolation: document.getElementById("enableInterpolation"),
   statusLine: document.getElementById("statusLine"),
   networkLine: document.getElementById("networkLine"),
   serverTimeStat: document.getElementById("serverTimeStat"),
@@ -117,7 +119,23 @@ function syncControlLabels() {
   });
   server.setSnapshotRate(Number(refs.snapshotRate.value));
   simulator.setInterpolationDelay(Number(refs.interpDelay.value));
+
+  const predictionOn = refs.enablePrediction.checked;
+  controller.setPredictionEnabled(predictionOn);
   controller.setReconciliationEnabled(refs.enableReconciliation.checked);
+  simulator.setInterpolationEnabled(refs.enableInterpolation.checked);
+
+  // Auto-disable reconciliation toggle when prediction is off
+  const reconLabel = refs.enableReconciliation.closest(".toggle");
+  if (reconLabel) {
+    if (predictionOn) {
+      reconLabel.classList.remove("disabled");
+    } else {
+      reconLabel.classList.add("disabled");
+      refs.enableReconciliation.checked = false;
+      controller.setReconciliationEnabled(false);
+    }
+  }
 }
 
 function updateDirection() {
@@ -174,7 +192,7 @@ function frame(currentTime) {
   requestAnimationFrame(frame);
 }
 
-for (const input of [refs.latency, refs.jitter, refs.loss, refs.snapshotRate, refs.interpDelay, refs.enableReconciliation]) {
+for (const input of [refs.latency, refs.jitter, refs.loss, refs.snapshotRate, refs.interpDelay, refs.enablePrediction, refs.enableReconciliation, refs.enableInterpolation]) {
   input.addEventListener("input", syncControlLabels);
   input.addEventListener("change", syncControlLabels);
 }

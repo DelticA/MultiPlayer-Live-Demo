@@ -166,6 +166,7 @@ export class ControllerClient {
     this.lastCorrection = 0;
     this.direction = 0;
     this.crouching = false;
+    this.enablePrediction = true;
     this.enableReconciliation = true;
     this.lastSentDirection = 0;
     this.lastSentCrouching = false;
@@ -177,6 +178,10 @@ export class ControllerClient {
 
   setCrouching(crouching) {
     this.crouching = crouching;
+  }
+
+  setPredictionEnabled(enabled) {
+    this.enablePrediction = enabled;
   }
 
   setReconciliationEnabled(enabled) {
@@ -198,7 +203,11 @@ export class ControllerClient {
       };
 
       this.pendingInputs.push(input);
-      this.predictedState = applyInput(this.predictedState, input);
+
+      if (this.enablePrediction) {
+        this.predictedState = applyInput(this.predictedState, input);
+      }
+
       this.network.send(now, "controller", "server", "input", input);
       this.lastSentDirection = this.direction;
       this.lastSentCrouching = this.crouching;
@@ -218,13 +227,23 @@ export class ControllerClient {
 
       const before = this.predictedState.x;
 
-      if (!this.enableReconciliation) {
+      if (!this.enablePrediction) {
+        // No prediction: directly adopt server state
         this.predictedState = copyCharacterState(snapshot.character);
         this.pendingInputs = this.pendingInputs.filter((input) => input.sequence > snapshot.lastProcessedInput);
         this.lastCorrection = this.predictedState.x - before;
         continue;
       }
 
+      if (!this.enableReconciliation) {
+        // Prediction on, reconciliation off: snap to server state (rubber-banding)
+        this.predictedState = copyCharacterState(snapshot.character);
+        this.pendingInputs = this.pendingInputs.filter((input) => input.sequence > snapshot.lastProcessedInput);
+        this.lastCorrection = this.predictedState.x - before;
+        continue;
+      }
+
+      // Prediction + reconciliation: rollback-replay
       this.pendingInputs = this.pendingInputs.filter((input) => input.sequence > snapshot.lastProcessedInput);
 
       let replayState = copyCharacterState(snapshot.character);
@@ -246,10 +265,15 @@ export class SimulatorClient {
     this.interpolationDelay = 180;
     this.newestSnapshotServerTime = 0;
     this.referenceSnapshot = null;
+    this.enableInterpolation = true;
   }
 
   setInterpolationDelay(delay) {
     this.interpolationDelay = delay;
+  }
+
+  setInterpolationEnabled(enabled) {
+    this.enableInterpolation = enabled;
   }
 
   receiveSnapshots(now) {
@@ -273,6 +297,13 @@ export class SimulatorClient {
 
   updateRenderPosition(now) {
     if (this.buffer.length === 0 || !this.referenceSnapshot) {
+      return;
+    }
+
+    if (!this.enableInterpolation) {
+      // No interpolation: snap to latest snapshot
+      const latest = this.buffer[this.buffer.length - 1];
+      this.renderState = copyCharacterState(latest.character);
       return;
     }
 

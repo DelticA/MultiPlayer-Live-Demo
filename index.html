@@ -61,14 +61,37 @@
           <input id="interpDelay" type="range" min="60" max="360" value="180">
         </div>
 
+        <div class="toggle-group">
+          <h3>同步算法</h3>
+
+          <label class="toggle" for="enablePrediction">
+            <div class="toggle-info">
+              <span>客户端预测</span>
+              <span class="toggle-desc">输入立即在本地生效，不等服务器确认</span>
+            </div>
+            <input id="enablePrediction" type="checkbox" checked>
+          </label>
+
+          <label class="toggle" for="enableReconciliation">
+            <div class="toggle-info">
+              <span>服务器和解</span>
+              <span class="toggle-desc">收到快照后回滚并重放未确认输入</span>
+            </div>
+            <input id="enableReconciliation" type="checkbox" checked>
+          </label>
+
+          <label class="toggle" for="enableInterpolation">
+            <div class="toggle-info">
+              <span>实体插值</span>
+              <span class="toggle-desc">模拟端在两个快照之间平滑过渡</span>
+            </div>
+            <input id="enableInterpolation" type="checkbox" checked>
+          </label>
+        </div>
+
         <label class="toggle">
           <span>显示服务器幽灵位置</span>
           <input id="showGhost" type="checkbox" checked>
-        </label>
-
-        <label class="toggle">
-          <span>启用主控端和解</span>
-          <input id="enableReconciliation" type="checkbox" checked>
         </label>
 
         <div class="legend">
