@@ -1,19 +1,22 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Controller Prediction / Simulator Interpolation Demo</title>
   <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
   <main class="shell">
     <section class="hero">
-      <div class="eyebrow">Gambetta Demo Refactor</div>
-      <h1>主控端预表现 模拟端插值</h1>
+      <div class="eyebrow">TM-11作业 过程稿1</div>
+      <h1>Multiplayer Live Demo</h1>
       <p>
-        这个版本把经典的双客户端预测演示，重构成三个视图：服务器权威状态、主控端本地预测与和解、模拟端基于快照缓冲的插值观察。
-        按住 <code>A / D</code> 或方向键移动主控实体，调整网络参数观察输入领先、ACK 回放和远端平滑插值之间的时间错位。
+        基于Gambetta的demo，初步改进的多人网络游戏移动同步演示。三个视图包括：服务器、主控端、模拟端。
+        按住 <code>A / D</code> 或方向键移动。网络参数可在左边调整。
+        同步优化目前版本实现了：客户端预测、服务器和解、模拟插值。可在左侧开关算法，感受区别。
       </p>
     </section>
 
@@ -82,7 +85,7 @@
 
           <label class="toggle" for="enableInterpolation">
             <div class="toggle-info">
-              <span>实体插值</span>
+              <span>模拟插值</span>
               <span class="toggle-desc">模拟端在两个快照之间平滑过渡</span>
             </div>
             <input id="enableInterpolation" type="checkbox" checked>
@@ -106,7 +109,7 @@
         </div>
 
         <div class="notes">
-          <h3>观察重点</h3>
+          <h3>Notes</h3>
           <ul class="note-list">
             <li>主控端总是先动，因为输入在本地立即应用。</li>
             <li>服务器稍后才确认输入，并通过 <code>lastProcessedInput</code> 触发回滚重放。</li>
@@ -174,4 +177,5 @@
 
   <script type="module" src="ui.js"></script>
 </body>
+
 </html>
