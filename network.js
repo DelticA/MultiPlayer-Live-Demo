@@ -10,6 +10,16 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function percentile(values, p) {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = clamp(Math.ceil((p / 100) * sorted.length) - 1, 0, sorted.length - 1);
+  return sorted[index];
+}
+
 export function createCharacterState(overrides = {}) {
   return {
     x: WORLD.controllerBaseX,
@@ -262,18 +272,75 @@ export class SimulatorClient {
     this.network = network;
     this.buffer = [];
     this.renderState = createCharacterState();
+    this.interpolationMode = "fixed";
+    this.fixedInterpolationDelay = 180;
     this.interpolationDelay = 180;
+    this.snapshotInterval = 100;
+    this.safetyMargin = 40;
+    this.jitterSamples = [];
+    this.jitterP95 = 0;
+    this.maxJitterSamples = 30;
+    this.previousSnapshotReceiveTime = null;
     this.newestSnapshotServerTime = 0;
     this.referenceSnapshot = null;
     this.enableInterpolation = true;
   }
 
+  updateInterpolationDelay() {
+    if (this.interpolationMode === "dynamic") {
+      this.interpolationDelay = Math.max(0, this.snapshotInterval + this.jitterP95 + this.safetyMargin);
+      return;
+    }
+
+    this.interpolationDelay = this.fixedInterpolationDelay;
+  }
+
+  setInterpolationMode(mode) {
+    this.interpolationMode = mode === "dynamic" ? "dynamic" : "fixed";
+    this.updateInterpolationDelay();
+  }
+
   setInterpolationDelay(delay) {
-    this.interpolationDelay = delay;
+    this.fixedInterpolationDelay = delay;
+    this.updateInterpolationDelay();
+  }
+
+  setSnapshotInterval(interval) {
+    if (this.snapshotInterval !== interval) {
+      this.snapshotInterval = interval;
+      this.jitterSamples = [];
+      this.jitterP95 = 0;
+      this.previousSnapshotReceiveTime = null;
+      this.updateInterpolationDelay();
+    }
+  }
+
+  setSafetyMargin(margin) {
+    this.safetyMargin = margin;
+    this.updateInterpolationDelay();
   }
 
   setInterpolationEnabled(enabled) {
     this.enableInterpolation = enabled;
+  }
+
+  recordSnapshotArrival(receiveTime) {
+    if (this.previousSnapshotReceiveTime !== null) {
+      const receiveInterval = receiveTime - this.previousSnapshotReceiveTime;
+      if (Number.isFinite(receiveInterval) && receiveInterval >= 0) {
+        const jitter = Math.abs(receiveInterval - this.snapshotInterval);
+        this.jitterSamples.push(jitter);
+
+        if (this.jitterSamples.length > this.maxJitterSamples) {
+          this.jitterSamples.shift();
+        }
+
+        this.jitterP95 = percentile(this.jitterSamples, 95);
+      }
+    }
+
+    this.previousSnapshotReceiveTime = receiveTime;
+    this.updateInterpolationDelay();
   }
 
   receiveSnapshots(now) {
@@ -283,11 +350,13 @@ export class SimulatorClient {
         continue;
       }
 
+      const receiveTime = message.deliveryTime ?? now;
       const entry = {
         character: copyCharacterState(message.payload.character),
         serverTime: message.payload.serverTime,
-        receiveTime: now
+        receiveTime
       };
+      this.recordSnapshotArrival(receiveTime);
       this.buffer.push(entry);
       this.buffer.sort((a, b) => a.serverTime - b.serverTime);
       this.newestSnapshotServerTime = Math.max(this.newestSnapshotServerTime, entry.serverTime);

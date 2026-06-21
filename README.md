@@ -19,7 +19,7 @@
 - `network.js`：网络模型、同步状态和预测/和解/插值逻辑
 - `render.js`：canvas 绘制和高 DPI 适配
 - `ui.js`：DOM、输入绑定、主循环和页面初始化
-- `.github/workflows/pages.yml`：GitHub Pages 自动部署工作流
+- `.github/workflows/static.yml`：GitHub Pages 自动部署工作流
 
 
 ## 操作方式
@@ -28,6 +28,13 @@
 - 或按住键盘左右方向键
 - 按住 `S`
 - 或按住键盘下方向键
+
+## 插值延迟模式
+
+- 固定模式：模拟端使用手动指定的插值延迟。
+- 动态模式：模拟端根据 `snapshotInterval + jitterP95 + safetyMargin` 估算有效插值延迟。
+- `snapshotInterval` 来自服务器快照频率，`jitterP95` 根据模拟端最近收到的快照间隔实时计算，`safetyMargin` 可手动调整并支持负值。
+- 负的 `safetyMargin` 会降低有效插值延迟，但更容易在快照晚到或丢失时出现卡顿、贴最新快照或突然修正。
 
 ## 参考来源
 

@@ -102,9 +102,32 @@ h1 {
   margin-bottom: 16px;
 }
 
+.interpolation-panel {
+  margin: 18px 0;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.interpolation-panel .control {
+  margin-bottom: 14px;
+}
+
+.interpolation-panel .control:last-child {
+  margin-bottom: 0;
+}
+
+.interpolation-child {
+  margin-left: 10px;
+  padding-left: 12px;
+  border-left: 2px solid rgba(15, 118, 110, 0.16);
+}
+
 .control label,
+.control-label,
 .legend h3,
-.notes h3 {
+.notes h3,
+.telemetry h3 {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -113,9 +136,54 @@ h1 {
   margin-bottom: 8px;
 }
 
+.control.disabled {
+  opacity: 0.48;
+}
+
+.control.disabled input {
+  pointer-events: none;
+}
+
 input[type="range"] {
   width: 100%;
   accent-color: var(--accent);
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(28, 25, 23, 0.06);
+}
+
+.segmented label {
+  margin: 0;
+  display: block;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented span {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.segmented input:checked + span {
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ink);
+  box-shadow: 0 1px 5px rgba(73, 55, 32, 0.12);
 }
 
 .note-list {
@@ -179,11 +247,17 @@ input[type="range"] {
 }
 
 .legend,
-.notes {
+.notes,
+.telemetry {
   margin-top: 18px;
   padding: 16px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.52);
+}
+
+.interpolation-panel .telemetry {
+  margin-top: 4px;
+  background: rgba(28, 25, 23, 0.04);
 }
 
 .legend ul,
@@ -193,6 +267,30 @@ input[type="range"] {
   padding: 0;
   display: grid;
   gap: 10px;
+}
+
+.telemetry dl {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.telemetry dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.telemetry dt,
+.telemetry dd {
+  margin: 0;
+}
+
+.telemetry dd {
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .legend li {

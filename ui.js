@@ -26,6 +26,20 @@ function formatPose(state) {
   return "静止";
 }
 
+function formatDelayMode(mode) {
+  return mode === "dynamic" ? "动态" : "固定";
+}
+
+function getInterpolationMode() {
+  const selected = refs.interpMode.find((input) => input.checked);
+  return selected?.value ?? "fixed";
+}
+
+function setControlDisabled(input, disabled) {
+  input.disabled = disabled;
+  input.closest(".control")?.classList.toggle("disabled", disabled);
+}
+
 const refs = {
   latency: document.getElementById("latency"),
   latencyValue: document.getElementById("latencyValue"),
@@ -37,6 +51,14 @@ const refs = {
   snapshotRateValue: document.getElementById("snapshotRateValue"),
   interpDelay: document.getElementById("interpDelay"),
   interpDelayValue: document.getElementById("interpDelayValue"),
+  interpMode: Array.from(document.querySelectorAll("input[name='interpMode']")),
+  interpModeValue: document.getElementById("interpModeValue"),
+  interpSafetyMargin: document.getElementById("interpSafetyMargin"),
+  interpSafetyMarginValue: document.getElementById("interpSafetyMarginValue"),
+  snapshotIntervalMetric: document.getElementById("snapshotIntervalMetric"),
+  jitterP95Metric: document.getElementById("jitterP95Metric"),
+  safetyMarginMetric: document.getElementById("safetyMarginMetric"),
+  effectiveInterpDelayMetric: document.getElementById("effectiveInterpDelayMetric"),
   showGhost: document.getElementById("showGhost"),
   enablePrediction: document.getElementById("enablePrediction"),
   enableReconciliation: document.getElementById("enableReconciliation"),
@@ -57,6 +79,10 @@ const refs = {
   simSnapshotStat: document.getElementById("simSnapshotStat"),
   simBufferStat: document.getElementById("simBufferStat"),
   simDelayStat: document.getElementById("simDelayStat"),
+  simDelayModeStat: document.getElementById("simDelayModeStat"),
+  simSnapshotIntervalStat: document.getElementById("simSnapshotIntervalStat"),
+  simJitterP95Stat: document.getElementById("simJitterP95Stat"),
+  simSafetyMarginStat: document.getElementById("simSafetyMarginStat"),
   simPoseStat: document.getElementById("simPoseStat"),
   serverCanvas: document.getElementById("serverCanvas").getContext("2d"),
   controllerCanvas: document.getElementById("controllerCanvas").getContext("2d"),
@@ -101,24 +127,36 @@ function render() {
   drawLane(refs.controllerCanvas, "controller prediction lane", controllerActors);
 
   drawLane(refs.simCanvas, "simulator interpolation lane", [
-    { x: simulator.renderState.x, state: simulator.renderState, color: "#2563eb", label: "interpolated", phase: nowMs - Number(refs.interpDelay.value) }
+    { x: simulator.renderState.x, state: simulator.renderState, color: "#2563eb", label: "interpolated", phase: nowMs - simulator.interpolationDelay }
   ]);
 }
 
 function syncControlLabels() {
+  const snapshotRate = Number(refs.snapshotRate.value);
+  const snapshotInterval = 1000 / snapshotRate;
+  const interpolationMode = getInterpolationMode();
+
   refs.latencyValue.textContent = `${refs.latency.value} ms`;
   refs.jitterValue.textContent = `${refs.jitter.value} ms`;
   refs.lossValue.textContent = `${refs.loss.value}%`;
   refs.snapshotRateValue.textContent = `${refs.snapshotRate.value} Hz`;
   refs.interpDelayValue.textContent = `${refs.interpDelay.value} ms`;
+  refs.interpModeValue.textContent = formatDelayMode(interpolationMode);
+  refs.interpSafetyMarginValue.textContent = `${refs.interpSafetyMargin.value} ms`;
 
   network.setConfig({
     latency: Number(refs.latency.value),
     jitter: Number(refs.jitter.value),
     loss: Number(refs.loss.value) / 100
   });
-  server.setSnapshotRate(Number(refs.snapshotRate.value));
+  server.setSnapshotRate(snapshotRate);
+  simulator.setSnapshotInterval(snapshotInterval);
   simulator.setInterpolationDelay(Number(refs.interpDelay.value));
+  simulator.setSafetyMargin(Number(refs.interpSafetyMargin.value));
+  simulator.setInterpolationMode(interpolationMode);
+
+  setControlDisabled(refs.interpDelay, interpolationMode === "dynamic");
+  setControlDisabled(refs.interpSafetyMargin, interpolationMode === "fixed");
 
   const predictionOn = refs.enablePrediction.checked;
   controller.setPredictionEnabled(predictionOn);
@@ -162,8 +200,16 @@ function updateStats() {
   refs.simRenderedStat.textContent = formatPx(simulator.renderState.x);
   refs.simSnapshotStat.textContent = formatMs(simulator.newestSnapshotServerTime);
   refs.simBufferStat.textContent = String(simulator.buffer.length);
-  refs.simDelayStat.textContent = `${refs.interpDelay.value} ms`;
+  refs.simDelayStat.textContent = formatMs(simulator.interpolationDelay);
+  refs.simDelayModeStat.textContent = formatDelayMode(simulator.interpolationMode);
+  refs.simSnapshotIntervalStat.textContent = formatMs(simulator.snapshotInterval);
+  refs.simJitterP95Stat.textContent = formatMs(simulator.jitterP95);
+  refs.simSafetyMarginStat.textContent = formatMs(simulator.safetyMargin);
   refs.simPoseStat.textContent = formatPose(simulator.renderState);
+  refs.snapshotIntervalMetric.textContent = formatMs(simulator.snapshotInterval);
+  refs.jitterP95Metric.textContent = formatMs(simulator.jitterP95);
+  refs.safetyMarginMetric.textContent = formatMs(simulator.safetyMargin);
+  refs.effectiveInterpDelayMetric.textContent = formatMs(simulator.interpolationDelay);
 
   const directionText =
     controller.crouching ? "蹲下输入持续中" :
@@ -173,7 +219,7 @@ function updateStats() {
 
   refs.statusLine.textContent =
     `${directionText} 主控领先服务器 ${Math.abs(controller.predictedState.x - controller.serverGhostState.x).toFixed(1)} px。`;
-  refs.networkLine.textContent = `队列中消息 ${network.messages.length} 条，延迟 ${refs.latency.value} ms，抖动 ${refs.jitter.value} ms，丢包 ${refs.loss.value}%`;
+  refs.networkLine.textContent = `队列中消息 ${network.messages.length} 条，延迟 ${refs.latency.value} ms，抖动 ${refs.jitter.value} ms，丢包 ${refs.loss.value}%，插值 ${formatDelayMode(simulator.interpolationMode)} ${formatMs(simulator.interpolationDelay)}`;
 }
 
 function frame(currentTime) {
@@ -192,7 +238,7 @@ function frame(currentTime) {
   requestAnimationFrame(frame);
 }
 
-for (const input of [refs.latency, refs.jitter, refs.loss, refs.snapshotRate, refs.interpDelay, refs.enablePrediction, refs.enableReconciliation, refs.enableInterpolation]) {
+for (const input of [refs.latency, refs.jitter, refs.loss, refs.snapshotRate, refs.interpDelay, refs.interpSafetyMargin, refs.enablePrediction, refs.enableReconciliation, refs.enableInterpolation, ...refs.interpMode]) {
   input.addEventListener("input", syncControlLabels);
   input.addEventListener("change", syncControlLabels);
 }

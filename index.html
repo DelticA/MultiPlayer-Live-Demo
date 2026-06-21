@@ -11,12 +11,14 @@
 <body>
   <main class="shell">
     <section class="hero">
-      <div class="eyebrow">TM-11作业 过程稿1</div>
+      <div class="eyebrow">TM-11作业</div>
       <h1>Multiplayer Live Demo</h1>
       <p>
-        基于Gambetta的demo，初步改进的多人网络游戏移动同步演示。三个视图包括：服务器、主控端、模拟端。
+        基于作业给的Gambetta参考demo，修改的多人网络游戏移动同步演示。
+        三个视图包括：服务器、主控端、模拟端。
         按住 <code>A / D</code> 或方向键移动。网络参数可在左边调整。
-        同步优化目前版本实现了：客户端预测、服务器和解、模拟插值。可在左侧开关算法，感受区别。
+        实现了：客户端预测、服务器和解、模拟插值；支持动态计算模拟端插值延时。
+        可在左侧开关算法，感受区别。
       </p>
     </section>
 
@@ -56,12 +58,61 @@
           <input id="snapshotRate" type="range" min="4" max="30" value="10">
         </div>
 
-        <div class="control">
-          <label for="interpDelay">
-            <span>模拟端插值延迟</span>
-            <span id="interpDelayValue">180 ms</span>
-          </label>
-          <input id="interpDelay" type="range" min="60" max="360" value="180">
+        <div class="interpolation-panel">
+          <div class="control">
+            <div class="control-label">
+              <span>模拟端插值模式</span>
+              <span id="interpModeValue">固定</span>
+            </div>
+            <div class="segmented" aria-label="模拟端插值模式">
+              <label>
+                <input type="radio" name="interpMode" value="fixed" checked>
+                <span>固定</span>
+              </label>
+              <label>
+                <input type="radio" name="interpMode" value="dynamic">
+                <span>动态</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="control interpolation-child">
+            <label for="interpDelay">
+              <span>固定插值延迟</span>
+              <span id="interpDelayValue">180 ms</span>
+            </label>
+            <input id="interpDelay" type="range" min="60" max="360" value="180">
+          </div>
+
+          <div class="control interpolation-child">
+            <label for="interpSafetyMargin">
+              <span>动态安全余量</span>
+              <span id="interpSafetyMarginValue">40 ms</span>
+            </label>
+            <input id="interpSafetyMargin" type="range" min="-120" max="200" value="40">
+          </div>
+
+          <div class="telemetry interpolation-child">
+            <h3>模拟端插值延迟实时计算</h3>
+            <dl>
+              <div>
+                <dt>快照周期=1/服务器快照频率</dt>
+                <dd id="snapshotIntervalMetric">100 ms</dd>
+              </div>
+              <div>
+                <dt>Jitter P95：近期30帧jitter的95百分位</dt>
+                <dd id="jitterP95Metric">0 ms</dd>
+              </div>
+              <div>
+                <dt>动态安全余量（越低延时表现越好，但负值可能造成卡顿）</dt>
+                <dd id="safetyMarginMetric">40 ms</dd>
+              </div>
+              <div>
+                <dt>模拟端插值延迟=max（0，以上三项之和）</dt>
+                <dd id="effectiveInterpDelayMetric">180 ms</dd>
+              </div>
+            </dl>
+          </div>
         </div>
 
         <div class="toggle-group">
@@ -162,6 +213,10 @@
               <div class="stat"><strong>Newest Snapshot</strong><span id="simSnapshotStat">0 ms</span></div>
               <div class="stat"><strong>Buffer Size</strong><span id="simBufferStat">0</span></div>
               <div class="stat"><strong>Render Delay</strong><span id="simDelayStat">180 ms</span></div>
+              <div class="stat"><strong>Delay Mode</strong><span id="simDelayModeStat">固定</span></div>
+              <div class="stat"><strong>Snapshot Interval</strong><span id="simSnapshotIntervalStat">100 ms</span></div>
+              <div class="stat"><strong>Jitter P95</strong><span id="simJitterP95Stat">0 ms</span></div>
+              <div class="stat"><strong>Safety Margin</strong><span id="simSafetyMarginStat">40 ms</span></div>
               <div class="stat"><strong>Pose</strong><span id="simPoseStat">静止</span></div>
             </div>
           </article>
