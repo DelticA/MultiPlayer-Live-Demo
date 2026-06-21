@@ -61,15 +61,15 @@
           <div class="control">
             <div class="control-label">
               <span>模拟端插值模式</span>
-              <span id="interpModeValue">固定</span>
+              <span id="interpModeValue">动态</span>
             </div>
             <div class="segmented" aria-label="模拟端插值模式">
               <label>
-                <input type="radio" name="interpMode" value="fixed" checked>
+                <input type="radio" name="interpMode" value="fixed">
                 <span>固定</span>
               </label>
               <label>
-                <input type="radio" name="interpMode" value="dynamic">
+                <input type="radio" name="interpMode" value="dynamic" checked>
                 <span>动态</span>
               </label>
             </div>
@@ -133,6 +133,22 @@
             <input id="enableReconciliation" type="checkbox" checked>
           </label>
 
+          <label class="toggle" for="enableInputRedundancy">
+            <div class="toggle-info">
+              <span>发包冗余</span>
+              <span class="toggle-desc">每个输入包额外携带最近 3 个未确认输入</span>
+            </div>
+            <input id="enableInputRedundancy" type="checkbox" checked>
+          </label>
+
+          <label class="toggle" for="enableCorrectionSmoothing">
+            <div class="toggle-info">
+              <span>主控校正平滑</span>
+              <span class="toggle-desc">主控端收到服务器修正后平滑拉回</span>
+            </div>
+            <input id="enableCorrectionSmoothing" type="checkbox" checked>
+          </label>
+
           <label class="toggle" for="enableInterpolation">
             <div class="toggle-info">
               <span>模拟插值</span>
@@ -189,6 +205,8 @@
               <div class="stat"><strong>Server Ghost</strong><span id="controllerGhostStat">140.0 px</span></div>
               <div class="stat"><strong>Pending Inputs</strong><span id="controllerPendingStat">0</span></div>
               <div class="stat"><strong>Last Correction</strong><span id="controllerCorrectionStat">0.0 px</span></div>
+              <div class="stat"><strong>发包冗余</strong><span id="controllerInputPacketStat">1 input</span></div>
+              <div class="stat"><strong>校正平滑</strong><span id="controllerSmoothingStat">0 帧</span></div>
               <div class="stat"><strong>Pose</strong><span id="controllerPoseStat">静止</span></div>
             </div>
           </article>

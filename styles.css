@@ -119,6 +119,10 @@ h1 {
   border-left: 2px solid rgba(15, 118, 110, 0.16);
 }
 
+.negative-value {
+  color: #dc2626 !important;
+}
+
 .control label,
 .control-label,
 .legend h3,

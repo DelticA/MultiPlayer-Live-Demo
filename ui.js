@@ -49,6 +49,13 @@ function syncInterpolationPanelMode(mode) {
   refs.interpSafetyMargin.disabled = fixedMode;
 }
 
+function syncSafetyMarginTone(value) {
+  const negative = value < 0;
+  refs.interpSafetyMarginValue.classList.toggle("negative-value", negative);
+  refs.safetyMarginMetric.classList.toggle("negative-value", negative);
+  refs.simSafetyMarginStat.classList.toggle("negative-value", negative);
+}
+
 const refs = {
   latency: document.getElementById("latency"),
   latencyValue: document.getElementById("latencyValue"),
@@ -74,6 +81,8 @@ const refs = {
   showGhost: document.getElementById("showGhost"),
   enablePrediction: document.getElementById("enablePrediction"),
   enableReconciliation: document.getElementById("enableReconciliation"),
+  enableInputRedundancy: document.getElementById("enableInputRedundancy"),
+  enableCorrectionSmoothing: document.getElementById("enableCorrectionSmoothing"),
   enableInterpolation: document.getElementById("enableInterpolation"),
   statusLine: document.getElementById("statusLine"),
   networkLine: document.getElementById("networkLine"),
@@ -86,6 +95,8 @@ const refs = {
   controllerGhostStat: document.getElementById("controllerGhostStat"),
   controllerPendingStat: document.getElementById("controllerPendingStat"),
   controllerCorrectionStat: document.getElementById("controllerCorrectionStat"),
+  controllerInputPacketStat: document.getElementById("controllerInputPacketStat"),
+  controllerSmoothingStat: document.getElementById("controllerSmoothingStat"),
   controllerPoseStat: document.getElementById("controllerPoseStat"),
   simRenderedStat: document.getElementById("simRenderedStat"),
   simSnapshotStat: document.getElementById("simSnapshotStat"),
@@ -229,7 +240,7 @@ function recordChartSample() {
   chartSamples.push({
     time: nowMs,
     server: server.character.x,
-    predicted: controller.predictedState.x,
+    predicted: controller.displayState.x,
     ghost: controller.serverGhostState.x,
     simulator: simulator.renderState.x
   });
@@ -248,7 +259,7 @@ function render() {
   ]);
 
   const controllerActors = [
-    { x: controller.predictedState.x, state: controller.predictedState, color: "#111827", label: "pred", phase: nowMs }
+    { x: controller.displayState.x, state: controller.displayState, color: "#111827", label: "pred", phase: nowMs }
   ];
 
   if (refs.showGhost.checked) {
@@ -288,6 +299,7 @@ function syncControlLabels() {
   const snapshotRate = Number(refs.snapshotRate.value);
   const snapshotInterval = 1000 / snapshotRate;
   const interpolationMode = getInterpolationMode();
+  const safetyMargin = Number(refs.interpSafetyMargin.value);
 
   refs.latencyValue.textContent = `${refs.latency.value} ms`;
   refs.jitterValue.textContent = `${refs.jitter.value} ms`;
@@ -296,6 +308,7 @@ function syncControlLabels() {
   refs.interpDelayValue.textContent = `${refs.interpDelay.value} ms`;
   refs.interpModeValue.textContent = formatDelayMode(interpolationMode);
   refs.interpSafetyMarginValue.textContent = `${refs.interpSafetyMargin.value} ms`;
+  syncSafetyMarginTone(safetyMargin);
 
   network.setConfig({
     latency: Number(refs.latency.value),
@@ -305,7 +318,7 @@ function syncControlLabels() {
   server.setSnapshotRate(snapshotRate);
   simulator.setSnapshotInterval(snapshotInterval);
   simulator.setInterpolationDelay(Number(refs.interpDelay.value));
-  simulator.setSafetyMargin(Number(refs.interpSafetyMargin.value));
+  simulator.setSafetyMargin(safetyMargin);
   simulator.setInterpolationMode(interpolationMode);
 
   syncInterpolationPanelMode(interpolationMode);
@@ -313,6 +326,8 @@ function syncControlLabels() {
   const predictionOn = refs.enablePrediction.checked;
   controller.setPredictionEnabled(predictionOn);
   controller.setReconciliationEnabled(refs.enableReconciliation.checked);
+  controller.setInputRedundancyEnabled(refs.enableInputRedundancy.checked);
+  controller.setCorrectionSmoothingEnabled(refs.enableCorrectionSmoothing.checked);
   simulator.setInterpolationEnabled(refs.enableInterpolation.checked);
 
   // Auto-disable reconciliation toggle when prediction is off
@@ -343,11 +358,13 @@ function updateStats() {
   refs.serverQueueStat.textContent = String(server.inputBacklog.length);
   refs.serverPoseStat.textContent = formatPose(server.character);
 
-  refs.controllerPredictedStat.textContent = formatPx(controller.predictedState.x);
+  refs.controllerPredictedStat.textContent = formatPx(controller.displayState.x);
   refs.controllerGhostStat.textContent = formatPx(controller.serverGhostState.x);
   refs.controllerPendingStat.textContent = String(controller.pendingInputs.length);
   refs.controllerCorrectionStat.textContent = `${controller.lastCorrection >= 0 ? "+" : ""}${controller.lastCorrection.toFixed(1)} px`;
-  refs.controllerPoseStat.textContent = formatPose(controller.predictedState);
+  refs.controllerInputPacketStat.textContent = `${controller.lastPacketInputCount} input${controller.lastPacketRedundantCount > 0 ? ` (+${controller.lastPacketRedundantCount})` : ""}`;
+  refs.controllerSmoothingStat.textContent = `${controller.smoothingFramesRemaining} 帧`;
+  refs.controllerPoseStat.textContent = formatPose(controller.displayState);
 
   refs.simRenderedStat.textContent = formatPx(simulator.renderState.x);
   refs.simSnapshotStat.textContent = formatMs(simulator.newestSnapshotServerTime);
@@ -357,6 +374,7 @@ function updateStats() {
   refs.simSnapshotIntervalStat.textContent = formatMs(simulator.snapshotInterval);
   refs.simJitterP95Stat.textContent = formatMs(simulator.jitterP95);
   refs.simSafetyMarginStat.textContent = formatMs(simulator.safetyMargin);
+  syncSafetyMarginTone(simulator.safetyMargin);
   refs.simPoseStat.textContent = formatPose(simulator.renderState);
   refs.snapshotIntervalMetric.textContent = formatMs(simulator.snapshotInterval);
   refs.jitterP95Metric.textContent = formatMs(simulator.jitterP95);
@@ -370,8 +388,8 @@ function updateStats() {
     "等待输入。按住 A / D、左右方向键行走，按住 S / 下方向键蹲下。";
 
   refs.statusLine.textContent =
-    `${directionText} 主控领先服务器 ${Math.abs(controller.predictedState.x - controller.serverGhostState.x).toFixed(1)} px。`;
-  refs.networkLine.textContent = `队列中消息 ${network.messages.length} 条，延迟 ${refs.latency.value} ms，抖动 ${refs.jitter.value} ms，丢包 ${refs.loss.value}%，插值 ${formatDelayMode(simulator.interpolationMode)} ${formatMs(simulator.interpolationDelay)}`;
+    `${directionText} 主控领先服务器 ${Math.abs(controller.displayState.x - controller.serverGhostState.x).toFixed(1)} px。`;
+  refs.networkLine.textContent = `队列中消息 ${network.messages.length} 条，延迟 ${refs.latency.value} ms，抖动 ${refs.jitter.value} ms，丢包 ${refs.loss.value}%，发包冗余 ${refs.enableInputRedundancy.checked ? "+3" : "关闭"}，主控校正平滑 ${refs.enableCorrectionSmoothing.checked ? "开启" : "关闭"}，插值 ${formatDelayMode(simulator.interpolationMode)} ${formatMs(simulator.interpolationDelay)}`;
 }
 
 function frame(currentTime) {
@@ -382,6 +400,7 @@ function frame(currentTime) {
   controller.sendLocalInput(dt, nowMs);
   server.tick(dt, nowMs);
   controller.receiveSnapshots(nowMs);
+  controller.updateDisplayState();
   simulator.receiveSnapshots(nowMs);
   simulator.updateRenderPosition(nowMs);
   recordChartSample();
@@ -391,7 +410,7 @@ function frame(currentTime) {
   requestAnimationFrame(frame);
 }
 
-for (const input of [refs.latency, refs.jitter, refs.loss, refs.snapshotRate, refs.interpDelay, refs.interpSafetyMargin, refs.enablePrediction, refs.enableReconciliation, refs.enableInterpolation, ...refs.interpMode]) {
+for (const input of [refs.latency, refs.jitter, refs.loss, refs.snapshotRate, refs.interpDelay, refs.interpSafetyMargin, refs.enablePrediction, refs.enableReconciliation, refs.enableInputRedundancy, refs.enableCorrectionSmoothing, refs.enableInterpolation, ...refs.interpMode]) {
   input.addEventListener("input", syncControlLabels);
   input.addEventListener("change", syncControlLabels);
 }

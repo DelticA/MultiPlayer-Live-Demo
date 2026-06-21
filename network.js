@@ -69,6 +69,35 @@ export function interpolateCharacterState(left, right, t) {
   };
 }
 
+function blendCharacterState(left, right, t) {
+  return {
+    x: left.x + (right.x - left.x) * t,
+    crouchAmount: left.crouchAmount + (right.crouchAmount - left.crouchAmount) * t,
+    facing: right.facing,
+    moveDirection: right.moveDirection
+  };
+}
+
+function extractInputPacket(payload) {
+  if (!payload) {
+    return [];
+  }
+
+  if (Array.isArray(payload.inputs)) {
+    return payload.inputs;
+  }
+
+  if (payload.input) {
+    return [...(payload.redundantInputs ?? []), payload.input];
+  }
+
+  if (Number.isFinite(payload.sequence)) {
+    return [payload];
+  }
+
+  return [];
+}
+
 export class LagNetwork {
   constructor(config) {
     this.latency = config.latency;
@@ -169,6 +198,7 @@ export class Server {
     this.character = createCharacterState();
     this.lastProcessedInput = 0;
     this.inputBacklog = [];
+    this.duplicateInputCount = 0;
     this.snapshotAccumulator = 0;
     this.snapshotInterval = 100;
   }
@@ -183,15 +213,35 @@ export class Server {
     const incoming = this.network.receive(now, "server");
     for (const message of incoming) {
       if (message.type === "input") {
-        this.inputBacklog.push(message.payload);
+        for (const input of extractInputPacket(message.payload)) {
+          if (!Number.isFinite(input.sequence)) {
+            continue;
+          }
+
+          const duplicate =
+            input.sequence <= this.lastProcessedInput ||
+            this.inputBacklog.some((queued) => queued.sequence === input.sequence);
+
+          if (duplicate) {
+            this.duplicateInputCount += 1;
+            continue;
+          }
+
+          this.inputBacklog.push(input);
+        }
       }
     }
 
     this.inputBacklog.sort((a, b) => a.sequence - b.sequence);
     while (this.inputBacklog.length > 0) {
       const input = this.inputBacklog.shift();
+      if (input.sequence <= this.lastProcessedInput) {
+        this.duplicateInputCount += 1;
+        continue;
+      }
+
       this.character = applyInput(this.character, input);
-      this.lastProcessedInput = input.sequence;
+      this.lastProcessedInput = Math.max(this.lastProcessedInput, input.sequence);
     }
 
     this.snapshotAccumulator += dt;
@@ -213,6 +263,7 @@ export class ControllerClient {
   constructor(network) {
     this.network = network;
     this.predictedState = createCharacterState();
+    this.displayState = createCharacterState();
     this.serverGhostState = createCharacterState();
     this.authoritativeState = createCharacterState();
     this.pendingInputs = [];
@@ -222,6 +273,13 @@ export class ControllerClient {
     this.crouching = false;
     this.enablePrediction = true;
     this.enableReconciliation = true;
+    this.enableInputRedundancy = true;
+    this.inputRedundancyCount = 3;
+    this.lastPacketRedundantCount = 0;
+    this.lastPacketInputCount = 0;
+    this.enableCorrectionSmoothing = true;
+    this.correctionSmoothingFrames = 8;
+    this.smoothingFramesRemaining = 0;
     this.lastSentDirection = 0;
     this.lastSentCrouching = false;
   }
@@ -240,6 +298,80 @@ export class ControllerClient {
 
   setReconciliationEnabled(enabled) {
     this.enableReconciliation = enabled;
+  }
+
+  setInputRedundancyEnabled(enabled) {
+    this.enableInputRedundancy = enabled;
+  }
+
+  setCorrectionSmoothingEnabled(enabled) {
+    this.enableCorrectionSmoothing = enabled;
+
+    if (!enabled) {
+      this.smoothingFramesRemaining = 0;
+      this.displayState = copyCharacterState(this.predictedState);
+    }
+  }
+
+  setCorrectionSmoothingFrames(frames) {
+    this.correctionSmoothingFrames = Math.max(1, Math.round(frames));
+  }
+
+  syncDisplayState() {
+    this.displayState = copyCharacterState(this.predictedState);
+  }
+
+  beginCorrectionSmoothing(correction) {
+    if (this.enableCorrectionSmoothing) {
+      if (Math.abs(correction) > 0.05) {
+        this.smoothingFramesRemaining = this.correctionSmoothingFrames;
+        return;
+      }
+
+      if (this.smoothingFramesRemaining > 0) {
+        return;
+      }
+    }
+
+    this.smoothingFramesRemaining = 0;
+    this.syncDisplayState();
+  }
+
+  updateDisplayState() {
+    if (this.smoothingFramesRemaining > 0) {
+      const t = 1 / this.smoothingFramesRemaining;
+      this.displayState = blendCharacterState(this.displayState, this.predictedState, t);
+      this.smoothingFramesRemaining -= 1;
+
+      if (this.smoothingFramesRemaining <= 0) {
+        this.syncDisplayState();
+      }
+      return;
+    }
+
+    this.syncDisplayState();
+  }
+
+  createInputPacket(input) {
+    if (!this.enableInputRedundancy) {
+      this.lastPacketRedundantCount = 0;
+      this.lastPacketInputCount = 1;
+      return input;
+    }
+
+    const redundantInputs = this.pendingInputs
+      .filter((candidate) => candidate.sequence !== input.sequence)
+      .slice(-this.inputRedundancyCount)
+      .map((candidate) => ({ ...candidate }));
+
+    this.lastPacketRedundantCount = redundantInputs.length;
+    this.lastPacketInputCount = redundantInputs.length + 1;
+
+    return {
+      input,
+      redundantInputs,
+      inputs: [...redundantInputs, input]
+    };
   }
 
   sendLocalInput(dt, now) {
@@ -262,7 +394,7 @@ export class ControllerClient {
         this.predictedState = applyInput(this.predictedState, input);
       }
 
-      this.network.send(now, "controller", "server", "input", input);
+      this.network.send(now, "controller", "server", "input", this.createInputPacket(input));
       this.lastSentDirection = this.direction;
       this.lastSentCrouching = this.crouching;
     }
@@ -280,20 +412,25 @@ export class ControllerClient {
       this.serverGhostState = copyCharacterState(snapshot.character);
 
       const before = this.predictedState.x;
+      let correctedState;
 
       if (!this.enablePrediction) {
         // No prediction: directly adopt server state
-        this.predictedState = copyCharacterState(snapshot.character);
+        correctedState = copyCharacterState(snapshot.character);
         this.pendingInputs = this.pendingInputs.filter((input) => input.sequence > snapshot.lastProcessedInput);
+        this.predictedState = correctedState;
         this.lastCorrection = this.predictedState.x - before;
+        this.beginCorrectionSmoothing(this.lastCorrection);
         continue;
       }
 
       if (!this.enableReconciliation) {
         // Prediction on, reconciliation off: snap to server state (rubber-banding)
-        this.predictedState = copyCharacterState(snapshot.character);
+        correctedState = copyCharacterState(snapshot.character);
         this.pendingInputs = this.pendingInputs.filter((input) => input.sequence > snapshot.lastProcessedInput);
+        this.predictedState = correctedState;
         this.lastCorrection = this.predictedState.x - before;
+        this.beginCorrectionSmoothing(this.lastCorrection);
         continue;
       }
 
@@ -307,6 +444,7 @@ export class ControllerClient {
 
       this.predictedState = replayState;
       this.lastCorrection = this.predictedState.x - before;
+      this.beginCorrectionSmoothing(this.lastCorrection);
     }
   }
 }
