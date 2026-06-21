@@ -11,7 +11,6 @@
 <body>
   <main class="shell">
     <section class="hero">
-      <div class="eyebrow">TM-11作业</div>
       <h1>Multiplayer Live Demo</h1>
       <p>
         基于作业给的Gambetta参考demo，修改的多人网络游戏移动同步演示。
@@ -76,7 +75,7 @@
             </div>
           </div>
 
-          <div class="control interpolation-child">
+          <div id="interpFixedControl" class="control interpolation-child">
             <label for="interpDelay">
               <span>固定插值延迟</span>
               <span id="interpDelayValue">180 ms</span>
@@ -84,7 +83,7 @@
             <input id="interpDelay" type="range" min="60" max="360" value="180">
           </div>
 
-          <div class="control interpolation-child">
+          <div id="interpDynamicControl" class="control interpolation-child">
             <label for="interpSafetyMargin">
               <span>动态安全余量</span>
               <span id="interpSafetyMarginValue">40 ms</span>
@@ -92,7 +91,7 @@
             <input id="interpSafetyMargin" type="range" min="-120" max="200" value="40">
           </div>
 
-          <div class="telemetry interpolation-child">
+          <div id="interpDynamicTelemetry" class="telemetry interpolation-child">
             <h3>模拟端插值延迟实时计算</h3>
             <dl>
               <div>
@@ -159,14 +158,6 @@
           </ul>
         </div>
 
-        <div class="notes">
-          <h3>Notes</h3>
-          <ul class="note-list">
-            <li>主控端总是先动，因为输入在本地立即应用。</li>
-            <li>服务器稍后才确认输入，并通过 <code>lastProcessedInput</code> 触发回滚重放。</li>
-            <li>模拟端故意活在过去一点点，换取平滑而不是抢最新。</li>
-          </ul>
-        </div>
       </aside>
 
       <section class="panel stage">
@@ -227,6 +218,26 @@
           <span id="networkLine">队列中消息 0 条</span>
         </div>
       </section>
+
+      <aside id="timelinePanel" class="panel timeline-panel">
+        <div class="view-title">
+          <strong>Position Timeline</strong>
+          <span>最近 5s / px</span>
+        </div>
+        <canvas id="timelineCanvas" class="timeline-canvas" width="320" height="440"></canvas>
+        <div id="timelineTooltip" class="timeline-tooltip" hidden></div>
+        <div class="chart-controls">
+          <label><input id="chartShowServer" type="checkbox" checked><i class="swatch swatch-server"></i>Server</label>
+          <label><input id="chartShowPredicted" type="checkbox" checked><i class="swatch swatch-controller"></i>Predicted</label>
+          <label><input id="chartShowGhost" type="checkbox" checked><i class="swatch swatch-ghost"></i>Ghost</label>
+          <label><input id="chartShowSimulator" type="checkbox" checked><i class="swatch swatch-simulator"></i>Simulator</label>
+          <button id="timelinePauseButton" type="button">暂停</button>
+        </div>
+        <div class="chart-legend">
+          <span><i class="event-ring"></i>send</span>
+          <span><i class="event-ring event-ring-filled"></i>receive</span>
+        </div>
+      </aside>
     </section>
   </main>
 

@@ -5,7 +5,7 @@ import {
   SimulatorClient,
   getCharacterPose
 } from "./network.js";
-import { drawLane, resizeCanvases } from "./render.js";
+import { drawLane, drawPositionChart, resizeCanvases } from "./render.js";
 
 function formatMs(value) {
   return `${Math.round(value)} ms`;
@@ -13,6 +13,10 @@ function formatMs(value) {
 
 function formatPx(value) {
   return `${value.toFixed(1)} px`;
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function formatPose(state) {
@@ -35,9 +39,14 @@ function getInterpolationMode() {
   return selected?.value ?? "fixed";
 }
 
-function setControlDisabled(input, disabled) {
-  input.disabled = disabled;
-  input.closest(".control")?.classList.toggle("disabled", disabled);
+function syncInterpolationPanelMode(mode) {
+  const fixedMode = mode === "fixed";
+
+  refs.interpFixedControl.hidden = !fixedMode;
+  refs.interpDynamicControl.hidden = fixedMode;
+  refs.interpDynamicTelemetry.hidden = fixedMode;
+  refs.interpDelay.disabled = !fixedMode;
+  refs.interpSafetyMargin.disabled = fixedMode;
 }
 
 const refs = {
@@ -51,8 +60,11 @@ const refs = {
   snapshotRateValue: document.getElementById("snapshotRateValue"),
   interpDelay: document.getElementById("interpDelay"),
   interpDelayValue: document.getElementById("interpDelayValue"),
+  interpFixedControl: document.getElementById("interpFixedControl"),
   interpMode: Array.from(document.querySelectorAll("input[name='interpMode']")),
   interpModeValue: document.getElementById("interpModeValue"),
+  interpDynamicControl: document.getElementById("interpDynamicControl"),
+  interpDynamicTelemetry: document.getElementById("interpDynamicTelemetry"),
   interpSafetyMargin: document.getElementById("interpSafetyMargin"),
   interpSafetyMarginValue: document.getElementById("interpSafetyMarginValue"),
   snapshotIntervalMetric: document.getElementById("snapshotIntervalMetric"),
@@ -86,7 +98,15 @@ const refs = {
   simPoseStat: document.getElementById("simPoseStat"),
   serverCanvas: document.getElementById("serverCanvas").getContext("2d"),
   controllerCanvas: document.getElementById("controllerCanvas").getContext("2d"),
-  simCanvas: document.getElementById("simCanvas").getContext("2d")
+  simCanvas: document.getElementById("simCanvas").getContext("2d"),
+  timelineCanvas: document.getElementById("timelineCanvas").getContext("2d"),
+  chartShowServer: document.getElementById("chartShowServer"),
+  chartShowPredicted: document.getElementById("chartShowPredicted"),
+  chartShowGhost: document.getElementById("chartShowGhost"),
+  chartShowSimulator: document.getElementById("chartShowSimulator"),
+  timelinePauseButton: document.getElementById("timelinePauseButton"),
+  timelinePanel: document.getElementById("timelinePanel"),
+  timelineTooltip: document.getElementById("timelineTooltip")
 };
 
 const network = new LagNetwork({
@@ -98,19 +118,137 @@ const server = new Server(network);
 const controller = new ControllerClient(network);
 const simulator = new SimulatorClient(network);
 
-const renderContexts = [refs.serverCanvas, refs.controllerCanvas, refs.simCanvas];
+const renderContexts = [refs.serverCanvas, refs.controllerCanvas, refs.simCanvas, refs.timelineCanvas];
 const keys = new Set();
+const chartSamples = [];
+const chartWindowMs = 5000;
+const chartRetentionMs = 6000;
 
 let previousFrame = performance.now();
 let nowMs = 0;
+let chartPaused = false;
+let chartPausedAt = 0;
+let chartPausedSamples = [];
+let chartPausedEvents = [];
+
+function getChartVisibleSeries() {
+  return {
+    server: refs.chartShowServer.checked,
+    predicted: refs.chartShowPredicted.checked,
+    ghost: refs.chartShowGhost.checked,
+    simulator: refs.chartShowSimulator.checked
+  };
+}
+
+function setChartPaused(paused) {
+  chartPaused = paused;
+
+  if (chartPaused) {
+    chartPausedAt = nowMs;
+    chartPausedSamples = chartSamples.slice();
+    chartPausedEvents = network.getEventsSince(nowMs - chartWindowMs).slice();
+    refs.timelinePauseButton.textContent = "继续";
+    return;
+  }
+
+  refs.timelinePauseButton.textContent = "暂停";
+  hideTimelineTooltip();
+}
+
+function findNearestChartSample(samples, time) {
+  if (samples.length === 0) {
+    return null;
+  }
+
+  let nearest = samples[0];
+  let bestDistance = Math.abs(nearest.time - time);
+
+  for (let i = 1; i < samples.length; i += 1) {
+    const distance = Math.abs(samples[i].time - time);
+    if (distance < bestDistance) {
+      nearest = samples[i];
+      bestDistance = distance;
+    }
+  }
+
+  return nearest;
+}
+
+function hideTimelineTooltip() {
+  refs.timelineTooltip.hidden = true;
+}
+
+function updateTimelineTooltip(event) {
+  if (!chartPaused) {
+    hideTimelineTooltip();
+    return;
+  }
+
+  const rect = refs.timelineCanvas.canvas.getBoundingClientRect();
+  const plotLeft = 38;
+  const plotRight = rect.width - 12;
+  const plotWidth = Math.max(1, plotRight - plotLeft);
+  const localX = clampNumber(event.clientX - rect.left, plotLeft, plotRight);
+  const sampleTime = chartPausedAt - chartWindowMs + ((localX - plotLeft) / plotWidth) * chartWindowMs;
+  const sample = findNearestChartSample(chartPausedSamples, sampleTime);
+
+  if (!sample) {
+    hideTimelineTooltip();
+    return;
+  }
+
+  const visible = getChartVisibleSeries();
+  const lines = [`t -${((chartPausedAt - sample.time) / 1000).toFixed(2)}s`];
+
+  if (visible.server) {
+    lines.push(`Server ${sample.server.toFixed(1)} px`);
+  }
+  if (visible.predicted) {
+    lines.push(`Pred ${sample.predicted.toFixed(1)} px`);
+  }
+  if (visible.ghost) {
+    lines.push(`Ghost ${sample.ghost.toFixed(1)} px`);
+  }
+  if (visible.simulator) {
+    lines.push(`Sim ${sample.simulator.toFixed(1)} px`);
+  }
+
+  const panelRect = refs.timelinePanel.getBoundingClientRect();
+  refs.timelineTooltip.textContent = lines.join("\n");
+  refs.timelineTooltip.hidden = false;
+
+  const tooltipRect = refs.timelineTooltip.getBoundingClientRect();
+  const left = clampNumber(event.clientX - panelRect.left + 10, 8, panelRect.width - tooltipRect.width - 8);
+  const top = clampNumber(event.clientY - panelRect.top + 10, 8, panelRect.height - tooltipRect.height - 8);
+
+  refs.timelineTooltip.style.left = `${left}px`;
+  refs.timelineTooltip.style.top = `${top}px`;
+}
+
+function recordChartSample() {
+  chartSamples.push({
+    time: nowMs,
+    server: server.character.x,
+    predicted: controller.predictedState.x,
+    ghost: controller.serverGhostState.x,
+    simulator: simulator.renderState.x
+  });
+
+  const cutoff = nowMs - chartRetentionMs;
+  while (chartSamples.length > 0 && chartSamples[0].time < cutoff) {
+    chartSamples.shift();
+  }
+
+  network.pruneEvents(nowMs, chartRetentionMs);
+}
 
 function render() {
-  drawLane(refs.serverCanvas, "server authoritative lane", [
-    { x: server.character.x, state: server.character, color: "#0f766e", label: "authoritative", phase: server.time }
+  drawLane(refs.serverCanvas, "Server", [
+    { x: server.character.x, state: server.character, color: "#0f766e", label: "auth", phase: server.time }
   ]);
 
   const controllerActors = [
-    { x: controller.predictedState.x, state: controller.predictedState, color: "#111827", label: "predicted", phase: nowMs }
+    { x: controller.predictedState.x, state: controller.predictedState, color: "#111827", label: "pred", phase: nowMs }
   ];
 
   if (refs.showGhost.checked) {
@@ -124,11 +262,26 @@ function render() {
     });
   }
 
-  drawLane(refs.controllerCanvas, "controller prediction lane", controllerActors);
+  drawLane(refs.controllerCanvas, "Controller", controllerActors);
 
-  drawLane(refs.simCanvas, "simulator interpolation lane", [
-    { x: simulator.renderState.x, state: simulator.renderState, color: "#2563eb", label: "interpolated", phase: nowMs - simulator.interpolationDelay }
+  drawLane(refs.simCanvas, "Simulator", [
+    { x: simulator.renderState.x, state: simulator.renderState, color: "#2563eb", label: "interp", phase: nowMs - simulator.interpolationDelay }
   ]);
+
+  const chartNow = chartPaused ? chartPausedAt : nowMs;
+  const chartSourceSamples = chartPaused ? chartPausedSamples : chartSamples;
+  const chartSourceEvents = chartPaused
+    ? chartPausedEvents
+    : network.getEventsSince(nowMs - chartWindowMs);
+
+  drawPositionChart(
+    refs.timelineCanvas,
+    chartSourceSamples,
+    chartSourceEvents,
+    chartNow,
+    chartWindowMs,
+    { visibleSeries: getChartVisibleSeries() }
+  );
 }
 
 function syncControlLabels() {
@@ -155,8 +308,7 @@ function syncControlLabels() {
   simulator.setSafetyMargin(Number(refs.interpSafetyMargin.value));
   simulator.setInterpolationMode(interpolationMode);
 
-  setControlDisabled(refs.interpDelay, interpolationMode === "dynamic");
-  setControlDisabled(refs.interpSafetyMargin, interpolationMode === "fixed");
+  syncInterpolationPanelMode(interpolationMode);
 
   const predictionOn = refs.enablePrediction.checked;
   controller.setPredictionEnabled(predictionOn);
@@ -232,6 +384,7 @@ function frame(currentTime) {
   controller.receiveSnapshots(nowMs);
   simulator.receiveSnapshots(nowMs);
   simulator.updateRenderPosition(nowMs);
+  recordChartSample();
 
   updateStats();
   render();
@@ -242,6 +395,18 @@ for (const input of [refs.latency, refs.jitter, refs.loss, refs.snapshotRate, re
   input.addEventListener("input", syncControlLabels);
   input.addEventListener("change", syncControlLabels);
 }
+
+for (const input of [refs.chartShowServer, refs.chartShowPredicted, refs.chartShowGhost, refs.chartShowSimulator]) {
+  input.addEventListener("change", render);
+}
+
+refs.timelinePauseButton.addEventListener("click", () => {
+  setChartPaused(!chartPaused);
+  render();
+});
+
+refs.timelineCanvas.canvas.addEventListener("mousemove", updateTimelineTooltip);
+refs.timelineCanvas.canvas.addEventListener("mouseleave", hideTimelineTooltip);
 
 window.addEventListener("keydown", (event) => {
   if (["ArrowLeft", "ArrowRight", "ArrowDown", "KeyA", "KeyD", "KeyS"].includes(event.code)) {

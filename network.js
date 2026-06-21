@@ -75,6 +75,8 @@ export class LagNetwork {
     this.jitter = config.jitter;
     this.loss = config.loss;
     this.messages = [];
+    this.events = [];
+    this.maxEvents = 2400;
   }
 
   setConfig(config) {
@@ -83,8 +85,37 @@ export class LagNetwork {
     this.loss = config.loss;
   }
 
+  recordEvent(event) {
+    this.events.push(event);
+
+    if (this.events.length > this.maxEvents) {
+      this.events.splice(0, this.events.length - this.maxEvents);
+    }
+  }
+
+  pruneEvents(now, maxAge = 11000) {
+    const cutoff = now - maxAge;
+    this.events = this.events.filter((event) => event.time >= cutoff);
+  }
+
+  getEventsSince(time) {
+    return this.events.filter((event) => event.time >= time);
+  }
+
   send(now, from, to, type, payload) {
-    if (Math.random() < this.loss) {
+    const dropped = Math.random() < this.loss;
+
+    this.recordEvent({
+      kind: "send",
+      time: now,
+      from,
+      to,
+      type,
+      payload,
+      dropped
+    });
+
+    if (dropped) {
       return;
     }
 
@@ -114,6 +145,19 @@ export class LagNetwork {
 
     delivered.sort((a, b) => a.deliveryTime - b.deliveryTime);
     this.messages = pending;
+
+    for (const message of delivered) {
+      this.recordEvent({
+        kind: "receive",
+        time: message.deliveryTime,
+        from: message.from,
+        to: message.to,
+        type: message.type,
+        payload: message.payload,
+        dropped: false
+      });
+    }
+
     return delivered;
   }
 }
